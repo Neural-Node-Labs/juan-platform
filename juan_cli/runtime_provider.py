@@ -10,7 +10,7 @@ import time
 import random
 from typing import Any
 
-from logger import trace, warn, log_error  # noqa: F401
+from logger import trace, warn, error as log_error  # noqa: F401
 import logger
 
 # ── Error codes ────────────────────────────────────────────────────────────────

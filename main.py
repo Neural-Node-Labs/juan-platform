@@ -8,6 +8,9 @@ from __future__ import annotations
 import argparse
 import sys
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Make project root importable
 sys.path.insert(0, os.path.dirname(__file__))
@@ -27,8 +30,8 @@ def build_agent(session_key: str = ""):
     # registry.register("bash", bash_tool_fn, schema={...})
 
     return AIAgent(
-        model         = os.environ.get("JUAN_MODEL", "claude-sonnet-4-20250514"),
-        provider      = os.environ.get("JUAN_PROVIDER", "anthropic"),
+        model         = os.environ.get("JUAN_MODEL", "deepseek-v4-flash"),
+        provider      = os.environ.get("JUAN_PROVIDER", "deepseek"),
         tool_registry = registry,
     )
 
