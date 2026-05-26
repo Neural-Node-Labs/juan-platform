@@ -97,7 +97,7 @@ Visit **http://localhost:5000** for:
 ## Project Structure
 
 ```
-src/
+juan-docker/
 ├── main.py                 # Entry point
 ├── juan_state.py           # SESSION_STORE (SQLite WAL + FTS5)
 ├── logger.py               # Structured JSON logging

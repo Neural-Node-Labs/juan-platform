@@ -18,7 +18,7 @@ COPY --chown=juan:juan . .
 
 # ── Data & config directories ─────────────────────────────────────────────────
 RUN mkdir -p /data /config /app/plugins \
-    && chown -R juan:juan /data /config /app/plugins
+    && chown -R juan:juan /data /config /app /app/plugins
 
 # ── Volumes ───────────────────────────────────────────────────────────────────
 VOLUME ["/data", "/config"]
