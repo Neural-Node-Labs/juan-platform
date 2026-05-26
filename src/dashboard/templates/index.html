@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JUAN // AGENT CONTROL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #0a0a0b;
+  --surface:  #111114;
+  --border:   #1e1e24;
+  --dim:      #2a2a32;
+  --text:     #c8c8d4;
+  --muted:    #555566;
+  --accent:   #00ff9d;
+  --accent2:  #ff6b35;
+  --accent3:  #7b61ff;
+  --danger:   #ff3b3b;
+  --warn:     #ffb800;
+  --ok:       #00d68f;
+  --mono:     'Space Mono', monospace;
+  --sans:     'Syne', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Scan lines overlay ── */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg, transparent, transparent 2px, rgba(0,0,0,.03) 2px, rgba(0,0,0,.03) 4px
+  );
+  pointer-events: none;
+}
+
+/* ── Layout ── */
+.shell { display: flex; flex-direction: column; height: 100vh; }
+
+header {
+  display: flex; align-items: center; gap: 20px;
+  padding: 0 24px; height: 52px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.logo {
+  font-family: var(--sans);
+  font-size: 18px; font-weight: 800;
+  letter-spacing: .12em;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+.logo span { color: var(--muted); font-weight: 400; }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 8px var(--ok);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.header-meta { color: var(--muted); font-size: 11px; margin-left: auto; }
+.header-meta strong { color: var(--text); }
+
+.main { display: flex; flex: 1; overflow: hidden; }
+
+/* ── Nav sidebar ── */
+nav {
+  width: 52px; flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 12px 0; gap: 4px;
+}
+.nav-btn {
+  width: 36px; height: 36px;
+  border: none; background: none; cursor: pointer;
+  border-radius: 6px;
+  color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+  position: relative;
+}
+.nav-btn:hover { background: var(--dim); color: var(--text); }
+.nav-btn.active { background: rgba(0,255,157,.1); color: var(--accent); }
+.nav-btn svg { width: 18px; height: 18px; }
+.nav-tip {
+  position: absolute; left: 46px; top: 50%; transform: translateY(-50%);
+  background: var(--dim); color: var(--text); font-size: 11px;
+  padding: 3px 8px; border-radius: 4px; white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: opacity .15s;
+  z-index: 100;
+}
+.nav-btn:hover .nav-tip { opacity: 1; }
+
+/* ── Panels ── */
+.content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.panel { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+.panel.active { display: flex; }
+
+/* ── Panel header ── */
+.panel-header {
+  padding: 16px 24px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 12px;
+}
+.panel-title {
+  font-family: var(--sans); font-size: 14px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--text);
+}
+.panel-sub { color: var(--muted); font-size: 11px; margin-left: auto; }
+
+/* ── Overview grid ── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1px; background: var(--border);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.stat-card {
+  background: var(--surface); padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.stat-label { color: var(--muted); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.stat-value {
+  font-family: var(--sans); font-size: 26px; font-weight: 800;
+  color: var(--text); line-height: 1;
+}
+.stat-value.green { color: var(--accent); }
+.stat-value.orange { color: var(--accent2); }
+.stat-value.purple { color: var(--accent3); }
+.stat-sub { color: var(--muted); font-size: 10px; }
+
+/* ── Log feed ── */
+.log-toolbar {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0; background: var(--surface);
+}
+.log-filter {
+  background: var(--dim); border: 1px solid var(--border);
+  color: var(--text); font-family: var(--mono); font-size: 11px;
+  padding: 4px 10px; border-radius: 4px; outline: none;
+}
+.log-filter:focus { border-color: var(--accent); }
+.log-clear {
+  margin-left: auto; background: none; border: 1px solid var(--border);
+  color: var(--muted); font-family: var(--mono); font-size: 11px;
+  padding: 4px 10px; border-radius: 4px; cursor: pointer;
+}
+.log-clear:hover { border-color: var(--danger); color: var(--danger); }
+
+.log-feed {
+  flex: 1; overflow-y: auto; font-size: 11px;
+  padding: 8px 0;
+  scroll-behavior: smooth;
+}
+.log-feed::-webkit-scrollbar { width: 4px; }
+.log-feed::-webkit-scrollbar-thumb { background: var(--dim); border-radius: 2px; }
+
+.log-row {
+  display: grid;
+  grid-template-columns: 72px 120px 100px 1fr;
+  gap: 0; padding: 2px 16px; align-items: baseline;
+  border-left: 2px solid transparent;
+  transition: background .1s;
+}
+.log-row:hover { background: rgba(255,255,255,.02); }
+.log-row.highlight { border-left-color: var(--accent); background: rgba(0,255,157,.04); }
+.log-row.err { border-left-color: var(--danger); }
+.log-row.warn { border-left-color: var(--warn); }
+
+.log-time { color: var(--muted); font-size: 10px; padding-right: 8px; }
+.log-comp {
+  font-size: 10px; letter-spacing: .04em;
+  padding-right: 8px; color: var(--accent3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.log-event {
+  font-size: 10px; color: var(--accent2);
+  padding-right: 8px; white-space: nowrap;
+}
+.log-detail { color: var(--text); font-size: 11px; word-break: break-all; }
+.log-detail .key { color: var(--muted); }
+.log-detail .val { color: var(--text); }
+.log-detail .num { color: var(--accent); }
+
+.log-empty {
+  display: flex; align-items: center; justify-content: center;
+  height: 120px; color: var(--muted); font-size: 12px;
+}
+
+/* ── Task panel ── */
+.task-layout { display: flex; flex: 1; overflow: hidden; }
+.task-input-col {
+  width: 380px; flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; padding: 20px;
+  gap: 12px;
+}
+.task-results-col { flex: 1; overflow-y: auto; padding: 20px; }
+
+label { font-size: 11px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+textarea, input[type=text], select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text); font-family: var(--mono); font-size: 12px;
+  padding: 10px 12px; border-radius: 6px; width: 100%;
+  outline: none; transition: border-color .15s;
+  resize: vertical;
+}
+textarea:focus, input:focus, select:focus { border-color: var(--accent); }
+
+.btn {
+  padding: 10px 16px; border-radius: 6px; border: none;
+  font-family: var(--mono); font-size: 12px; cursor: pointer;
+  font-weight: 700; letter-spacing: .04em; transition: all .15s;
+}
+.btn-primary {
+  background: var(--accent); color: #000;
+}
+.btn-primary:hover { background: #00ffb3; }
+.btn-primary:disabled { background: var(--dim); color: var(--muted); cursor: default; }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-ghost {
+  background: none; border: 1px solid var(--border);
+  color: var(--text);
+}
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+.task-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 16px; margin-bottom: 12px;
+  animation: fadein .3s ease;
+}
+@keyframes fadein { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+.task-card-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+}
+.task-card-id { color: var(--muted); font-size: 10px; }
+.task-badge {
+  font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 700;
+}
+.badge-pending { background: rgba(255,184,0,.15); color: var(--warn); }
+.badge-done    { background: rgba(0,214,143,.15); color: var(--ok); }
+.badge-error   { background: rgba(255,59,59,.15);  color: var(--danger); }
+.task-prompt { color: var(--muted); font-size: 11px; margin-bottom: 8px; word-break: break-word; }
+.task-response { color: var(--text); font-size: 12px; white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+.task-meta { color: var(--muted); font-size: 10px; margin-top: 8px; }
+
+/* ── Sessions panel ── */
+.sessions-table-wrap { flex: 1; overflow: auto; }
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; padding: 10px 16px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--bg); z-index: 1;
+}
+td { padding: 9px 16px; border-bottom: 1px solid rgba(255,255,255,.03); font-size: 11px; }
+tr:hover td { background: rgba(255,255,255,.02); cursor: pointer; }
+.pill {
+  display: inline-block; padding: 1px 7px;
+  border-radius: 20px; font-size: 10px; font-weight: 700;
+}
+.pill-tg  { background: rgba(0,136,204,.2); color: #29b6f6; }
+.pill-api { background: rgba(123,97,255,.2); color: var(--accent3); }
+.pill-dash{ background: rgba(0,255,157,.1); color: var(--accent); }
+.pill-cron{ background: rgba(255,107,53,.15); color: var(--accent2); }
+.pill-other { background: var(--dim); color: var(--muted); }
+
+/* ── Cron panel ── */
+.cron-layout { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.cron-form {
+  padding: 20px; border-bottom: 1px solid var(--border);
+  display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.cron-field { display: flex; flex-direction: column; gap: 5px; }
+.cron-field.grow { flex: 1; min-width: 200px; }
+.cron-jobs { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.job-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 14px 16px;
+  display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center;
+}
+.job-info { display: flex; flex-direction: column; gap: 4px; }
+.job-id { font-size: 10px; color: var(--muted); }
+.job-task { font-size: 12px; color: var(--text); }
+.job-sched { font-size: 11px; color: var(--accent3); }
+.job-target { font-size: 10px; color: var(--muted); }
+
+/* ── Settings panel ── */
+.settings-wrap { padding: 24px; overflow-y: auto; flex: 1; max-width: 700px; }
+.settings-section { margin-bottom: 28px; }
+.settings-title {
+  font-family: var(--sans); font-size: 13px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .08em;
+  color: var(--accent); margin-bottom: 12px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border);
+}
+.settings-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.03);
+}
+.settings-key { color: var(--muted); font-size: 11px; }
+.settings-val { color: var(--text); font-size: 11px; text-align: right; }
+.settings-val.ok { color: var(--ok); }
+.settings-val.miss { color: var(--danger); }
+
+/* ── Modal ── */
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 200;
+  display: none; align-items: center; justify-content: center;
+}
+.modal-bg.open { display: flex; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 24px; min-width: 480px; max-width: 680px;
+  max-height: 80vh; overflow-y: auto;
+}
+.modal-title {
+  font-family: var(--sans); font-size: 15px; font-weight: 700;
+  margin-bottom: 16px; color: var(--text);
+}
+.modal-close {
+  float: right; background: none; border: none; color: var(--muted);
+  font-size: 18px; cursor: pointer; line-height: 1;
+}
+.modal-message {
+  color: var(--accent2); font-size: 12px; font-style: italic;
+  background: rgba(255,107,53,.05); border: 1px solid rgba(255,107,53,.15);
+  padding: 10px 12px; border-radius: 6px; margin-bottom: 14px;
+  word-break: break-word;
+}
+.modal-msgs { display: flex; flex-direction: column; gap: 8px; }
+.msg-bubble {
+  max-width: 85%; padding: 10px 14px; border-radius: 8px;
+  font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+}
+.msg-user { background: rgba(123,97,255,.15); align-self: flex-end; color: var(--text); }
+.msg-assistant { background: rgba(0,255,157,.08); align-self: flex-start; color: var(--text); }
+.msg-tool { background: rgba(255,107,53,.08); align-self: flex-start; color: var(--muted); font-size: 11px; }
+.msg-role { font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--dim); border-radius: 3px; }
+
+/* ── Spinner ── */
+.spinner {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid var(--dim); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- Header -->
+<header>
+  <div class="logo">JUAN <span>// AGENT CONTROL</span></div>
+  <div class="status-dot" id="statusDot"></div>
+  <div id="headerMeta" class="header-meta">connecting...</div>
+</header>
+
+<div class="main">
+
+<!-- Nav -->
+<nav>
+  <button class="nav-btn active" data-panel="overview" onclick="showPanel('overview',this)" title="">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+    <span class="nav-tip">Overview</span>
+  </button>
+  <button class="nav-btn" data-panel="activity" onclick="showPanel('activity',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    <span class="nav-tip">Activity Feed</span>
+  </button>
+  <button class="nav-btn" data-panel="tasks" onclick="showPanel('tasks',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+    <span class="nav-tip">Submit Task</span>
+  </button>
+  <button class="nav-btn" data-panel="sessions" onclick="showPanel('sessions',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    <span class="nav-tip">Sessions</span>
+  </button>
+  <button class="nav-btn" data-panel="cron" onclick="showPanel('cron',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    <span class="nav-tip">Cron Jobs</span>
+  </button>
+  <button class="nav-btn" data-panel="settings" onclick="showPanel('settings',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    <span class="nav-tip">Settings</span>
+  </button>
+</nav>
+
+<div class="content">
+
+<!-- ── OVERVIEW ── -->
+<div class="panel active" id="panel-overview">
+  <div class="panel-header">
+    <span class="panel-title">System Overview</span>
+    <span class="panel-sub" id="uptimeBadge">—</span>
+  </div>
+  <div class="stat-grid" id="statGrid">
+    <div class="stat-card"><div class="stat-label">Sessions</div><div class="stat-value green" id="stat-sessions">—</div><div class="stat-sub">total</div></div>
+    <div class="stat-card"><div class="stat-label">Active</div><div class="stat-value orange" id="stat-active">—</div><div class="stat-sub">open</div></div>
+    <div class="stat-card"><div class="stat-label">Messages</div><div class="stat-value" id="stat-messages">—</div><div class="stat-sub">stored</div></div>
+    <div class="stat-card"><div class="stat-label">Input Tokens</div><div class="stat-value purple" id="stat-input">—</div><div class="stat-sub">cumulative</div></div>
+    <div class="stat-card"><div class="stat-label">Output Tokens</div><div class="stat-value purple" id="stat-output">—</div><div class="stat-sub">cumulative</div></div>
+    <div class="stat-card"><div class="stat-label">Events Buffered</div><div class="stat-value" id="stat-events">—</div><div class="stat-sub">in memory</div></div>
+  </div>
+  <!-- Mini feed -->
+  <div class="log-toolbar" style="border-top:1px solid var(--border)">
+    <span style="color:var(--muted);font-size:11px;letter-spacing:.05em">RECENT ACTIVITY</span>
+  </div>
+  <div class="log-feed" id="overviewFeed"></div>
+</div>
+
+<!-- ── ACTIVITY ── -->
+<div class="panel" id="panel-activity">
+  <div class="panel-header">
+    <span class="panel-title">Activity Feed</span>
+    <span class="panel-sub" id="feedCount">0 events</span>
+  </div>
+  <div class="log-toolbar">
+    <select class="log-filter" id="compFilter" onchange="renderFeed()">
+      <option value="">All components</option>
+      <option>AGENT_LOOP</option><option>PROVIDER_RUNTIME</option>
+      <option>TOOL_REGISTRY</option><option>SESSION_STORE</option>
+      <option>GATEWAY_RUNNER</option><option>CONTEXT_COMPRESSOR</option>
+      <option>MEMORY_MANAGER</option><option>AUTHORIZATION</option>
+      <option>APPROVAL_GATE</option><option>CRON_SCHEDULER</option>
+      <option>ITERATION_BUDGET</option><option>DASHBOARD</option>
+    </select>
+    <input class="log-filter" id="eventSearch" placeholder="search event / session..." oninput="renderFeed()" style="width:200px">
+    <button class="log-clear" onclick="clearFeed()">CLEAR</button>
+  </div>
+  <div class="log-feed" id="activityFeed"></div>
+</div>
+
+<!-- ── TASKS ── -->
+<div class="panel" id="panel-tasks">
+  <div class="panel-header">
+    <span class="panel-title">Submit Task</span>
+    <span class="panel-sub">Direct agent dispatch</span>
+  </div>
+  <div class="task-layout">
+    <div class="task-input-col">
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <label>Task / Message</label>
+        <textarea id="taskMsg" rows="6" placeholder="Describe the task for Juan to execute…"></textarea>
+      </div>
+      <button class="btn btn-primary" id="submitBtn" onclick="submitTask()">▶ SUBMIT TASK</button>
+      <div style="margin-top:8px;color:var(--muted);font-size:10px;line-height:1.6">
+        Tasks run in isolated <code style="color:var(--accent3)">dashboard:</code> sessions.
+        Results appear on the right as they complete.
+      </div>
+    </div>
+    <div class="task-results-col" id="taskResults">
+      <div class="log-empty">No tasks yet. Submit one to get started.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SESSIONS ── -->
+<div class="panel" id="panel-sessions">
+  <div class="panel-header">
+    <span class="panel-title">Sessions</span>
+    <span class="panel-sub" id="sessionsCount">—</span>
+  </div>
+  <div class="sessions-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Session ID</th><th>Platform</th><th>User</th>
+          <th>Model</th><th>Tokens (in/out)</th><th>Started</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="sessionsBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── CRON ── -->
+<div class="panel" id="panel-cron">
+  <div class="panel-header">
+    <span class="panel-title">Cron Jobs</span>
+    <span class="panel-sub">Scheduled agent tasks</span>
+  </div>
+  <div class="cron-layout">
+    <div class="cron-form">
+      <div class="cron-field grow">
+        <label>Task</label>
+        <input type="text" id="cronTask" placeholder="Search for today's AI news and summarize">
+      </div>
+      <div class="cron-field" style="min-width:160px">
+        <label>Schedule</label>
+        <input type="text" id="cronSchedule" placeholder="every 6 hours" value="@daily">
+      </div>
+      <div class="cron-field" style="min-width:180px">
+        <label>Delivery (platform:chat_id)</label>
+        <input type="text" id="cronTarget" placeholder="telegram:123456789">
+      </div>
+      <button class="btn btn-primary" onclick="addCronJob()" style="flex-shrink:0;align-self:flex-end">+ ADD JOB</button>
+    </div>
+    <div class="cron-jobs" id="cronJobs">
+      <div class="log-empty">No scheduled jobs. Add one above.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SETTINGS ── -->
+<div class="panel" id="panel-settings">
+  <div class="panel-header">
+    <span class="panel-title">Configuration</span>
+  </div>
+  <div class="settings-wrap" id="settingsWrap">
+    <div class="log-empty"><span class="spinner"></span></div>
+  </div>
+</div>
+
+</div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /shell -->
+
+<!-- Session detail modal -->
+<div class="modal-bg" id="sessionModal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title" id="modalTitle">Session</div>
+    <div class="modal-message" id="modalMeta"></div>
+    <div class="modal-msgs" id="modalMsgs"></div>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let allEvents = [];
+let sseSource = null;
+let pollingInterval = null;
+
+// ── Panel switching ───────────────────────────────────────────────────────────
+function showPanel(name, btn) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  btn.classList.add('active');
+  if (name === 'sessions') loadSessions();
+  if (name === 'cron') loadCron();
+  if (name === 'settings') loadSettings();
+}
+
+// ── Status polling ────────────────────────────────────────────────────────────
+async function pollStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    document.getElementById('statusDot').style.background = 'var(--ok)';
+    document.getElementById('statusDot').style.boxShadow = '0 0 8px var(--ok)';
+    document.getElementById('stat-sessions').textContent = fmt(d.sessions);
+    document.getElementById('stat-active').textContent   = fmt(d.active);
+    document.getElementById('stat-messages').textContent = fmt(d.messages);
+    document.getElementById('stat-input').textContent    = fmtK(d.tokens?.input || 0);
+    document.getElementById('stat-output').textContent   = fmtK(d.tokens?.output || 0);
+    document.getElementById('stat-events').textContent   = fmt(d.events_buffered);
+    document.getElementById('uptimeBadge').textContent   = 'uptime ' + fmtUptime(d.uptime_s);
+    document.getElementById('headerMeta').innerHTML =
+      `model <strong>${d.model}</strong> &nbsp;·&nbsp; provider <strong>${d.provider}</strong>` +
+      (d.platform && d.platform !== '—' ? ` &nbsp;·&nbsp; platform <strong>${d.platform}</strong>` : '');
+  } catch(e) {
+    document.getElementById('statusDot').style.background = 'var(--danger)';
+  }
+}
+
+// ── SSE Event stream ──────────────────────────────────────────────────────────
+function connectSSE() {
+  if (sseSource) sseSource.close();
+  sseSource = new EventSource('/api/events/stream');
+  sseSource.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    if (ev.type === 'connected') return;
+    ev._id = ev._id || Math.random().toString(36).slice(2,8);
+    allEvents.push(ev);
+    if (allEvents.length > 500) allEvents.shift();
+    appendEvent(ev, 'activityFeed');
+    appendEvent(ev, 'overviewFeed', true);
+    document.getElementById('feedCount').textContent = allEvents.length + ' events';
+  };
+  sseSource.onerror = () => {
+    setTimeout(connectSSE, 3000);
+  };
+}
+
+// ── Render log row ────────────────────────────────────────────────────────────
+function appendEvent(ev, feedId, mini=false) {
+  const compFilter = document.getElementById('compFilter')?.value || '';
+  const search = (document.getElementById('eventSearch')?.value || '').toLowerCase();
+  if (compFilter && ev.component !== compFilter) return;
+  if (search && !JSON.stringify(ev).toLowerCase().includes(search)) return;
+
+  const feed = document.getElementById(feedId);
+  if (!feed) return;
+
+  const ts = ev.timestamp ? new Date(ev.timestamp * 1000).toISOString().substr(11,8) : '—';
+  const comp = (ev.component || '').padEnd(0);
+  const event = ev.event || ev.type || '?';
+
+  // Build detail string from remaining keys
+  const skip = new Set(['timestamp','phase','component','event','_id','type','duration_ms']);
+  const parts = [];
+  for (const [k,v] of Object.entries(ev)) {
+    if (skip.has(k)) continue;
+    const vs = typeof v === 'number' ? `<span class="num">${v}</span>` : `<span class="val">${String(v).slice(0,80)}</span>`;
+    parts.push(`<span class="key">${k}=</span>${vs}`);
+  }
+  if (ev.duration_ms != null) parts.push(`<span class="key">dt=</span><span class="num">${ev.duration_ms}ms</span>`);
+
+  const isErr  = (event||'').toLowerCase().includes('error') || (event||'').toLowerCase().includes('fail');
+  const isWarn = (event||'').toLowerCase().includes('warn');
+  const isHL   = ['turn_end','turn_start','tool_dispatch','agent_dispatched','job_due'].includes(event);
+
+  const row = document.createElement('div');
+  row.className = 'log-row' + (isErr?' err':isWarn?' warn':isHL?' highlight':'');
+  row.innerHTML = `
+    <span class="log-time">${ts}</span>
+    <span class="log-comp">${comp}</span>
+    <span class="log-event">${event}</span>
+    <span class="log-detail">${parts.join(' &nbsp; ')}</span>
+  `;
+  feed.appendChild(row);
+
+  // Trim overview feed to 50 rows
+  if (mini && feed.children.length > 50) feed.removeChild(feed.firstChild);
+
+  // Auto-scroll if near bottom
+  const atBottom = feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 60;
+  if (atBottom) feed.scrollTop = feed.scrollHeight;
+}
+
+function renderFeed() {
+  const feed = document.getElementById('activityFeed');
+  feed.innerHTML = '';
+  allEvents.forEach(ev => appendEvent(ev, 'activityFeed'));
+  if (feed.children.length === 0) feed.innerHTML = '<div class="log-empty">No matching events.</div>';
+}
+
+function clearFeed() {
+  allEvents = [];
+  document.getElementById('activityFeed').innerHTML = '<div class="log-empty">Feed cleared.</div>';
+  document.getElementById('overviewFeed').innerHTML = '';
+}
+
+// ── Tasks ─────────────────────────────────────────────────────────────────────
+async function submitTask() {
+  const msg = document.getElementById('taskMsg').value.trim();
+  if (!msg) return;
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> RUNNING…';
+
+  const results = document.getElementById('taskResults');
+  const tmpId = 'task-' + Date.now();
+
+  const card = document.createElement('div');
+  card.className = 'task-card';
+  card.id = tmpId;
+  card.innerHTML = `
+    <div class="task-card-header">
+      <span class="task-badge badge-pending">● PENDING</span>
+      <span class="task-card-id">submitting…</span>
+    </div>
+    <div class="task-prompt">${escHtml(msg)}</div>
+    <div class="task-response"><span class="spinner"></span></div>
+  `;
+  // Remove placeholder
+  const placeholder = results.querySelector('.log-empty');
+  if (placeholder) placeholder.remove();
+  results.insertBefore(card, results.firstChild);
+
+  try {
+    const r = await fetch('/api/tasks', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({message: msg})
+    });
+    const {task_id} = await r.json();
+    card.querySelector('.task-card-id').textContent = task_id;
+    pollTask(task_id, card);
+  } catch(e) {
+    card.querySelector('.task-response').textContent = 'Error: ' + e.message;
+    card.querySelector('.task-badge').className = 'task-badge badge-error';
+    card.querySelector('.task-badge').textContent = '✕ ERROR';
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '▶ SUBMIT TASK';
+  document.getElementById('taskMsg').value = '';
+}
+
+async function pollTask(taskId, card) {
+  for (let i = 0; i < 300; i++) {
+    await sleep(1500);
+    try {
+      const r = await fetch('/api/tasks/' + taskId);
+      const d = await r.json();
+      if (d.status === 'done') {
+        card.querySelector('.task-badge').className = 'task-badge badge-done';
+        card.querySelector('.task-badge').textContent = '✓ DONE';
+        card.querySelector('.task-response').textContent = d.response || '(no response)';
+        card.querySelector('.task-card-header').insertAdjacentHTML('beforeend',
+          `<span class="task-meta">${d.iterations||0} iter · ${(d.usage?.input_tokens||0)+(d.usage?.output_tokens||0)} tokens</span>`);
+        return;
+      }
+      if (d.status === 'error') {
+        card.querySelector('.task-badge').className = 'task-badge badge-error';
+        card.querySelector('.task-badge').textContent = '✕ ERROR';
+        card.querySelector('.task-response').textContent = d.error || 'Unknown error';
+        return;
+      }
+    } catch(e) {}
+  }
+}
+
+// ── Sessions ──────────────────────────────────────────────────────────────────
+async function loadSessions() {
+  try {
+    const r = await fetch('/api/sessions?per=50');
+    const {sessions, total} = await r.json();
+    document.getElementById('sessionsCount').textContent = total + ' total';
+    const tbody = document.getElementById('sessionsBody');
+    tbody.innerHTML = '';
+    sessions.forEach(s => {
+      const platform = s.session_id.split(':')[0] || s.platform || '?';
+      const pillClass = {telegram:'pill-tg',dashboard:'pill-dash',cron:'pill-cron',discord:'pill-tg'}[platform] || 'pill-other';
+      const started = s.created_at ? new Date(s.created_at*1000).toLocaleString() : '—';
+      const open = !s.ended_at;
+      const tr = document.createElement('tr');
+      tr.onclick = () => openSession(s.session_id);
+      tr.innerHTML = `
+        <td style="font-size:10px;color:var(--muted);font-family:var(--mono)">${s.session_id.slice(0,40)}…</td>
+        <td><span class="pill ${pillClass}">${platform}</span></td>
+        <td style="color:var(--muted)">${s.user_id||'—'}</td>
+        <td style="color:var(--muted)">${(s.model||'—').replace('claude-','')}</td>
+        <td style="color:var(--accent3)">${fmtK(s.input_tokens||0)} / ${fmtK(s.output_tokens||0)}</td>
+        <td style="color:var(--muted)">${started}</td>
+        <td><span class="pill ${open?'badge-pending':'badge-done'}">${open?'OPEN':'CLOSED'}</span></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch(e) { console.error(e); }
+}
+
+async function openSession(sessionId) {
+  document.getElementById('modalTitle').textContent = sessionId.slice(0,50);
+  document.getElementById('modalMeta').textContent = 'Loading…';
+  document.getElementById('modalMsgs').innerHTML = '';
+  document.getElementById('sessionModal').classList.add('open');
+  try {
+    const r = await fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/messages');
+    const {messages} = await r.json();
+    document.getElementById('modalMeta').textContent = messages.length + ' messages';
+    const container = document.getElementById('modalMsgs');
+    container.innerHTML = '';
+    messages.forEach(m => {
+      const div = document.createElement('div');
+      const roleClass = {user:'msg-user', assistant:'msg-assistant', tool:'msg-tool'}[m.role] || 'msg-tool';
+      div.className = 'msg-bubble ' + roleClass;
+      div.innerHTML = `<div class="msg-role">${m.role.toUpperCase()}</div>${escHtml(m.content||'').slice(0,800)}`;
+      container.appendChild(div);
+    });
+  } catch(e) {
+    document.getElementById('modalMeta').textContent = 'Error: ' + e.message;
+  }
+}
+
+function closeModal() {
+  document.getElementById('sessionModal').classList.remove('open');
+}
+
+// ── Cron ─────────────────────────────────────────────────────────────────────
+async function loadCron() {
+  try {
+    const r = await fetch('/api/cron');
+    const {jobs} = await r.json();
+    const container = document.getElementById('cronJobs');
+    if (!jobs || jobs.length === 0) {
+      container.innerHTML = '<div class="log-empty">No scheduled jobs. Add one above.</div>';
+      return;
+    }
+    container.innerHTML = '';
+    jobs.forEach(j => {
+      const card = document.createElement('div');
+      card.className = 'job-card';
+      const next = j.next_run ? new Date(j.next_run*1000).toLocaleString() : '—';
+      card.innerHTML = `
+        <div class="job-info">
+          <div class="job-id">${j.job_id}</div>
+          <div class="job-task">${escHtml(j.task||'')}</div>
+          <div class="job-sched">${j.schedule} &nbsp;·&nbsp; next: ${next}</div>
+          ${j.delivery_target ? `<div class="job-target">→ ${j.delivery_target}</div>` : ''}
+        </div>
+        <button class="btn btn-danger" style="font-size:10px;padding:6px 10px" onclick="deleteCron('${j.job_id}')">✕ DELETE</button>
+      `;
+      container.appendChild(card);
+    });
+  } catch(e) { console.error(e); }
+}
+
+async function addCronJob() {
+  const task     = document.getElementById('cronTask').value.trim();
+  const schedule = document.getElementById('cronSchedule').value.trim();
+  const target   = document.getElementById('cronTarget').value.trim();
+  if (!task || !schedule) { alert('Task and schedule are required.'); return; }
+  try {
+    const r = await fetch('/api/cron', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({task, schedule, delivery_target: target})
+    });
+    const d = await r.json();
+    if (d.error) { alert('Error: ' + d.error); return; }
+    document.getElementById('cronTask').value = '';
+    loadCron();
+  } catch(e) { alert('Failed: ' + e.message); }
+}
+
+async function deleteCron(jobId) {
+  if (!confirm('Delete job ' + jobId + '?')) return;
+  await fetch('/api/cron/' + jobId, {method: 'DELETE'});
+  loadCron();
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+async function loadSettings() {
+  try {
+    const r = await fetch('/api/config');
+    const d = await r.json();
+    const wrap = document.getElementById('settingsWrap');
+    const rows = (obj) => Object.entries(obj).map(([k,v]) => {
+      const cls = v && v !== '—' && !v.includes('****...') ? 'ok' : v === '—' || !v ? 'miss' : '';
+      return `<div class="settings-row"><span class="settings-key">${k}</span><span class="settings-val ${cls}">${v}</span></div>`;
+    }).join('');
+
+    wrap.innerHTML = `
+      <div class="settings-section">
+        <div class="settings-title">Runtime</div>
+        ${rows({Model: d.model, Provider: d.provider, Platform: d.platform, 'Max Iterations': d.max_iterations})}
+      </div>
+      <div class="settings-section">
+        <div class="settings-title">API Keys</div>
+        ${rows(d.api_keys)}
+      </div>
+      <div class="settings-section">
+        <div class="settings-title">Config Files</div>
+        ${rows({'SOUL.md': d.soul_md_present?'✓ present':'✗ missing (using fallback)', 'juan_auth.json': d.auth_json_present?'✓ present':'✗ missing (allow_all)'})}
+      </div>
+    `;
+  } catch(e) {
+    document.getElementById('settingsWrap').innerHTML = '<div class="log-empty">Failed to load config.</div>';
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmt(n)  { return n == null ? '—' : Number(n).toLocaleString(); }
+function fmtK(n) { return n >= 1000000 ? (n/1000000).toFixed(1)+'M' : n >= 1000 ? (n/1000).toFixed(1)+'K' : String(n||0); }
+function fmtUptime(s) {
+  if (!s) return '—';
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  return h ? `${h}h ${m}m` : m ? `${m}m ${sec}s` : `${sec}s`;
+}
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+pollStatus();
+setInterval(pollStatus, 10000);
+connectSSE();
+</script>
+</body>
+</html>

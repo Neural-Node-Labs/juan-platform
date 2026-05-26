@@ -1,0 +1,32 @@
+# Secrets — never commit these
+.env
+*.db
+*.db-wal
+*.db-shm
+juan_pairing.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Config copies (generated at runtime)
+SOUL.md
+juan_auth.json
+
+# Data
+/data/
+*.log
+*.tar.gz
+
+# macOS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
