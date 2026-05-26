@@ -20,6 +20,13 @@ COPY --chown=juan:juan . .
 RUN mkdir -p /data /config /app/plugins \
     && chown -R juan:juan /data /config /app /app/plugins
 
+# Fix potential Windows line endings and ensure entrypoint is executable
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends dos2unix \
+    && dos2unix /app/entrypoint.sh \
+    && chmod +x /app/entrypoint.sh \
+    && rm -rf /var/lib/apt/lists/*
+
 # ── Volumes ───────────────────────────────────────────────────────────────────
 VOLUME ["/data", "/config"]
 
