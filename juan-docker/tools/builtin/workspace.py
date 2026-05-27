@@ -293,6 +293,7 @@ def workspace_tool(
 
 # ── Tool schema (Anthropic format) ────────────────────────────────────────────
 
+
 WORKSPACE_SCHEMA = {
     "name": "workspace",
     "description": (

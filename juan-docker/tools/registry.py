@@ -54,8 +54,36 @@ class ToolRegistry:
     # ── Registration ──────────────────────────────────────────────────────────
 
     def register(self, name: str, fn: Callable, schema: dict | None = None) -> None:
+            self._handlers[name] = fn
+            s = schema or {"name": name, "description": ""}
+
+            # If the schema is already wrapped in a "function" nesting, keep it.
+            # Otherwise, wrap the flat schema into the correct API format.
+            if "function" in s and s.get("type") == "function":
+                self._schemas[name] = s
+            else:
+                # Extract fields safely, defaulting parameters/input_schema
+                # Anthropic natively uses 'input_schema', OpenAI uses 'parameters'
+                parameters = s.get("input_schema") or s.get("parameters") or {"type": "object", "properties": {}}
+
+                self._schemas[name] = {
+                    "type": "function",
+                    "function": {
+                        "name": s.get("name", name),
+                        "description": s.get("description", ""),
+                        "parameters": parameters # Adjust to "input_schema" if your client library expects Anthropic style
+                    }
+                }
+
+
+    def register_old(self, name: str, fn: Callable, schema: dict | None = None) -> None:
         self._handlers[name] = fn
-        self._schemas[name]  = schema or {"name": name, "description": ""}
+        s = schema or {"name": name, "description": ""}
+        # Anthropic Messages API requires "type": "custom" on every tool.
+        # Inject it if missing so plugins and custom tools don't break silently.
+        if "type" not in s:
+            s = {"type": "function", **s}
+        self._schemas[name] = s
 
     def get_tool_schemas(self) -> list[dict]:
         return list(self._schemas.values())
