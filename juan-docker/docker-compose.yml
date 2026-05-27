@@ -1,0 +1,47 @@
+services:
+  juan:
+    build: .
+    container_name: juan-agent
+    restart: unless-stopped
+    ports:
+      - "5000:5000"    # Dashboard
+      - "5001:5001"    # UI WebSocket (React + Kivy)
+      - "5002:5002"    # UI HTTP/SSE  (Kivy fallback + auth)
+    volumes:
+      - juan-data:/data          # DB + workspace (agent files live in /data/workspace)
+      - ./config:/config:ro      # SOUL.md, juan_auth.json
+      - ./plugins:/app/plugins   # Custom plugins
+    env_file:
+      - .env
+    environment:
+      JUAN_DB_PATH:   /data/juan_state.db
+      SOUL_MD_PATH:   /config/SOUL.md
+      AUTH_JSON_PATH: /config/juan_auth.json
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+volumes:
+  juan-data:
+    name: juan-data
+
+# ── UI Mode override example ──────────────────────────────────────────────────
+# Uncomment ONE of the following profiles to select your UI:
+#
+# React only:
+#   environment:
+#     UI_MODE: react
+#
+# Python only:
+#   environment:
+#     UI_MODE: python
+#
+# Default (both):  no override needed — UI_MODE=both is the default

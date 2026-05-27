@@ -23,7 +23,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from logger import trace
 from juan_state import get_db
 
-app = Flask(__name__)
+import pathlib
+_REACT_DIST = pathlib.Path(__file__).parent.parent / "ui-react" / "dist"
+
+app = Flask(
+    __name__,
+    static_folder   = str(_REACT_DIST) if _REACT_DIST.exists() else None,
+    static_url_path = "/app",
+)
 app.secret_key = os.environ.get("DASHBOARD_SECRET", "juan-dev-secret-changeme")
 CORS(app)
 
@@ -68,9 +75,62 @@ def auth_required(f):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+# ── UI Mode routing ──────────────────────────────────────────────────────────
+# UI_MODE controls what / serves:
+#   react  → React SPA at /   | Python dashboard at /ops
+#   python → Python HTML at / | React SPA at /chat (if built)
+#   both   → Python HTML at / | React SPA at /chat (default)
+
+_UI_MODE = os.environ.get("UI_MODE", "both").lower()
+
+def _serve_react():
+    react_index = _REACT_DIST / "index.html"
+    if react_index.exists():
+        from flask import send_file
+        return send_file(str(react_index))
+    return ("<h2>React UI not built.</h2>"
+            "<p>Run: <code>cd ui-react && npm run build</code></p>"
+            "<p>Or set <code>UI_MODE=python</code> to use the Python dashboard.</p>"), 503
+
+def _serve_python():
+    return render_template("index.html")
+
+
 @app.route("/")
 def index():
-    return render_template("index.html")
+    """Root route — React SPA or Python dashboard depending on UI_MODE."""
+    if _UI_MODE == "react":
+        return _serve_react()
+    return _serve_python()   # python | both → Python dashboard at /
+
+@app.route("/chat")
+@app.route("/chat/")
+def react_app():
+    """
+    React SPA route.
+    - UI_MODE=python|both → React at /chat
+    - UI_MODE=react       → React is already at /; redirect here for compat
+    """
+    return _serve_react()
+
+@app.route("/ops")
+@app.route("/ops/")
+def ops_dashboard():
+    """
+    Python HTML dashboard.
+    - UI_MODE=react  → dashboard moved to /ops
+    - UI_MODE=python → dashboard is already at /; alias here for compat
+    - UI_MODE=both   → dashboard is at /; alias here for compat
+    """
+    return _serve_python()
+
+@app.route("/app/<path:filename>")
+def react_static(filename):
+    """Serve React static assets (JS, CSS, images)."""
+    if _REACT_DIST.exists():
+        from flask import send_from_directory
+        return send_from_directory(str(_REACT_DIST), filename)
+    return "", 404
 
 @app.route("/api/auth", methods=["POST"])
 def auth():
