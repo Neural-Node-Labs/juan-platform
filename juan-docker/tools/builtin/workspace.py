@@ -293,8 +293,8 @@ def workspace_tool(
 
 # ── Tool schema (Anthropic format) ────────────────────────────────────────────
 
-
 WORKSPACE_SCHEMA = {
+    "type": "custom",
     "name": "workspace",
     "description": (
         "Read, write, and manage files and folders in the agent workspace. "

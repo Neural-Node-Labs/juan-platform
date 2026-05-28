@@ -54,39 +54,48 @@ class ToolRegistry:
     # ── Registration ──────────────────────────────────────────────────────────
 
     def register(self, name: str, fn: Callable, schema: dict | None = None) -> None:
-            self._handlers[name] = fn
-            s = schema or {"name": name, "description": ""}
-
-            # If the schema is already wrapped in a "function" nesting, keep it.
-            # Otherwise, wrap the flat schema into the correct API format.
-            if "function" in s and s.get("type") == "function":
-                self._schemas[name] = s
-            else:
-                # Extract fields safely, defaulting parameters/input_schema
-                # Anthropic natively uses 'input_schema', OpenAI uses 'parameters'
-                parameters = s.get("input_schema") or s.get("parameters") or {"type": "object", "properties": {}}
-
-                self._schemas[name] = {
-                    "type": "function",
-                    "function": {
-                        "name": s.get("name", name),
-                        "description": s.get("description", ""),
-                        "parameters": parameters # Adjust to "input_schema" if your client library expects Anthropic style
-                    }
-                }
-
-
-    def register_old(self, name: str, fn: Callable, schema: dict | None = None) -> None:
         self._handlers[name] = fn
-        s = schema or {"name": name, "description": ""}
-        # Anthropic Messages API requires "type": "custom" on every tool.
-        # Inject it if missing so plugins and custom tools don't break silently.
+        s = dict(schema) if schema else {"name": name, "description": ""}
+        # ── Anthropic API invariants (enforced here so no caller can break them) ──
+        # 1. Every tool needs "type": "custom"
         if "type" not in s:
-            s = {"type": "function", **s}
+            s = {"type": "custom", **s}
+        # 2. Every tool needs "name"
+        if "name" not in s:
+            s["name"] = name
+        # 3. Every tool needs "description"
+        if "description" not in s:
+            s["description"] = f"Tool: {name}"
+        # 4. Every tool needs "input_schema" with at minimum {"type":"object","properties":{}}
+        if "input_schema" not in s:
+            s["input_schema"] = {"type": "object", "properties": {}}
+        else:
+            is_ = s["input_schema"]
+            if "type" not in is_:
+                is_["type"] = "object"
+            if "properties" not in is_:
+                is_["properties"] = {}
         self._schemas[name] = s
 
     def get_tool_schemas(self) -> list[dict]:
+        """Return validated schemas — safe to send to any Anthropic-compatible API."""
         return list(self._schemas.values())
+
+    def validate_schemas(self) -> list[str]:
+        """Return list of validation errors. Empty = all schemas are API-safe."""
+        errors = []
+        for name, s in self._schemas.items():
+            if s.get("type") != "custom":
+                errors.append(f"{name}: missing type=custom")
+            if "name" not in s:
+                errors.append(f"{name}: missing name")
+            if "description" not in s:
+                errors.append(f"{name}: missing description")
+            if "input_schema" not in s:
+                errors.append(f"{name}: missing input_schema")
+            elif s["input_schema"].get("type") != "object":
+                errors.append(f"{name}: input_schema.type must be object")
+        return errors
 
     # ── Dispatch ──────────────────────────────────────────────────────────────
 

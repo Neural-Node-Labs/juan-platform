@@ -4,15 +4,14 @@ import type {
   WSInbound, WSOutbound
 } from '@/types'
 
-const TOKEN_STORAGE_KEY = 'juan_ui_token'
-const RECONNECT_DELAYS  = [1000, 2000, 4000, 8000, 16000]
-const PING_INTERVAL_MS  = 25000
+const TOKEN_STORAGE_KEY  = 'juan_ui_token'
+const RECONNECT_DELAYS   = [1000, 2000, 4000, 8000, 16000]
+const PING_INTERVAL_MS   = 25000
+const SUBPROTOCOL_PREFIX = 'juan-auth.'
 
-// ── Secure token storage ──────────────────────────────────────────────────
+// ── Token storage ─────────────────────────────────────────────────────────────
 function saveToken(token: AuthToken): void {
-  try {
-    sessionStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(token))
-  } catch { /* storage may be unavailable */ }
+  try { sessionStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(token)) } catch { /* ignore */ }
 }
 
 function loadToken(): AuthToken | null {
@@ -20,29 +19,26 @@ function loadToken(): AuthToken | null {
     const raw = sessionStorage.getItem(TOKEN_STORAGE_KEY)
     if (!raw) return null
     const t = JSON.parse(raw) as AuthToken
-    // Discard if expired or expiring in next 60s
     if (t.expiresAt < Date.now() / 1000 + 60) {
       sessionStorage.removeItem(TOKEN_STORAGE_KEY)
       return null
     }
     return t
-  } catch {
-    return null
-  }
+  } catch { return null }
 }
 
 function clearToken(): void {
   try { sessionStorage.removeItem(TOKEN_STORAGE_KEY) } catch { /* ignore */ }
 }
 
-// ── Input validation (mirrors server-side rules) ──────────────────────────
+// ── Input validation ──────────────────────────────────────────────────────────
 function validateContent(content: string): string | null {
   if (!content.trim()) return 'Message cannot be empty'
   if (new TextEncoder().encode(content).length > 32 * 1024) return 'Message too long (max 32KB)'
   return null
 }
 
-// ── Hook ──────────────────────────────────────────────────────────────────
+// ── Hook ──────────────────────────────────────────────────────────────────────
 export interface UseJuanWSOptions {
   settings: UserSettings
   onMessage: (msg: ChatMessage) => void
@@ -67,7 +63,7 @@ export function useJuanWS({
   const reconnectRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectCount = useRef(0)
   const tokenRef       = useRef<AuthToken | null>(loadToken())
-  const pendingRef     = useRef<Map<string, (msg: WSInbound) => void>>(new Map())
+  const authSentRef    = useRef(false)
 
   const [connection, setConnection] = useState<ConnectionState>({
     status: 'disconnected', sessionId: null, error: null, lastPing: null
@@ -82,25 +78,18 @@ export function useJuanWS({
     })
   }, [onStatusChange])
 
-  // ── Auth ────────────────────────────────────────────────────────────────
+  // ── Authenticate (HTTP /ui/auth) ───────────────────────────────────────────
   const authenticate = useCallback(async (password: string): Promise<boolean> => {
-    updateState({ status: 'auth' })
+    updateState({ status: 'connecting', error: null })
     try {
       const res = await fetch(`${settings.httpUrl}/ui/auth`, {
         method:  'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'X-Client-Type': 'react',
-        },
-        body: JSON.stringify({ password }),
-        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-Client-Type': 'react' },
+        body:    JSON.stringify({ password }),
       })
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        updateState({
-          status: 'error',
-          error:  (err as { message?: string }).message || 'Authentication failed',
-        })
+        const err = await res.json().catch(() => ({})) as { message?: string }
+        updateState({ status: 'auth', error: err.message ?? 'Authentication failed' })
         return false
       }
       const data = await res.json() as AuthToken
@@ -108,37 +97,46 @@ export function useJuanWS({
       saveToken(data)
       return true
     } catch (err) {
-      updateState({ status: 'error', error: String(err) })
+      updateState({ status: 'auth', error: `Cannot reach server: ${String(err)}` })
       return false
     }
   }, [settings.httpUrl, updateState])
 
-  // ── Connect ─────────────────────────────────────────────────────────────
+  // ── Connect (WebSocket) ────────────────────────────────────────────────────
   const connect = useCallback(() => {
     if (!tokenRef.current) {
       updateState({ status: 'auth', error: null })
       return
     }
 
-    // Clear existing
     if (wsRef.current) {
       wsRef.current.onclose = null
       wsRef.current.close()
     }
 
+    authSentRef.current = false
     updateState({ status: 'connecting', error: null })
 
-    const ws = new WebSocket(settings.wsUrl)
+    const token = tokenRef.current.token
+
+    // Pass token via WebSocket subprotocol — the ONLY browser-safe way
+    // to carry credentials on the initial handshake.
+    // Format: "juan-auth.<base64url-token>"
+    const ws = new WebSocket(settings.wsUrl, [`${SUBPROTOCOL_PREFIX}${token}`])
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
     ws.onopen = () => {
-      // Send auth header via first message — WebSocket headers are set on open
-      // (token was passed in the Upgrade request via subprotocol workaround)
       reconnectCount.current = 0
-      updateState({ status: 'connected', error: null })
 
-      // Start ping
+      // Fallback: also send auth as first message in case server
+      // doesn't support subprotocol negotiation (older servers)
+      if (!authSentRef.current) {
+        authSentRef.current = true
+        ws.send(JSON.stringify({ type: 'auth', token }))
+      }
+
+      // Start ping keepalive
       if (pingRef.current) clearInterval(pingRef.current)
       pingRef.current = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -148,20 +146,16 @@ export function useJuanWS({
     }
 
     ws.onmessage = (ev: MessageEvent) => {
-      let data: WSInbound
+      let data: WSInbound & { status?: string }
       try {
-        data = JSON.parse(ev.data as string) as WSInbound
-      } catch {
-        return // ignore malformed frames
-      }
+        data = JSON.parse(ev.data as string)
+      } catch { return }
 
-      // Resolve pending promise
-      if (data.request_id && pendingRef.current.has(data.request_id)) {
-        const resolve = pendingRef.current.get(data.request_id)!
-        pendingRef.current.delete(data.request_id)
-        resolve(data)
+      // Server confirmed connection
+      if (data.type === 'status' && data.status === 'connected') {
+        updateState({ status: 'connected', sessionId: data.session_id ?? null, error: null })
+        return
       }
-
       if (data.type === 'pong') {
         updateState({ lastPing: Date.now() })
         return
@@ -173,12 +167,12 @@ export function useJuanWS({
       if (data.type === 'response') {
         setIsThinking(false)
         onMessage({
-          id:         crypto.randomUUID(),
-          role:       'assistant',
-          content:    data.content ?? '',
-          timestamp:  Date.now(),
-          requestId:  data.request_id,
-          metadata: data.metadata ? {
+          id:        crypto.randomUUID(),
+          role:      'assistant',
+          content:   data.content ?? '',
+          timestamp: Date.now(),
+          requestId: data.request_id,
+          metadata:  data.metadata ? {
             iterations:   data.metadata.iterations,
             inputTokens:  data.metadata.input_tokens,
             outputTokens: data.metadata.output_tokens,
@@ -189,17 +183,16 @@ export function useJuanWS({
       }
       if (data.type === 'error') {
         setIsThinking(false)
-        if (data.error_code === 'UIAUTH_FAIL' || data.error_code === 'UIAUTH_EXPIRED') {
+        const code = (data as WSInbound).error_code
+        if (code === 'UIAUTH_FAIL' || code === 'UIAUTH_EXPIRED') {
           clearToken()
           tokenRef.current = null
           updateState({ status: 'auth', error: data.message ?? 'Session expired' })
           return
         }
         onMessage({
-          id:        crypto.randomUUID(),
-          role:      'error',
-          content:   data.message ?? 'An error occurred',
-          timestamp: Date.now(),
+          id: crypto.randomUUID(), role: 'error',
+          content: data.message ?? 'An error occurred', timestamp: Date.now(),
         })
       }
     }
@@ -215,7 +208,7 @@ export function useJuanWS({
         return
       }
 
-      const delay = RECONNECT_DELAYS[Math.min(reconnectCount.current, RECONNECT_DELAYS.length - 1)]
+      const delay = RECONNECT_DELAYS[Math.min(reconnectCount.current, RECONNECT_DELAYS.length - 1)]!
       reconnectCount.current++
       updateState({ status: 'disconnected', error: `Reconnecting in ${delay / 1000}s…` })
 
@@ -224,21 +217,18 @@ export function useJuanWS({
     }
 
     ws.onerror = () => {
-      updateState({ status: 'error', error: 'WebSocket error' })
+      // onerror always precedes onclose — let onclose handle reconnect
+      updateState({ status: 'error', error: 'WebSocket error — check server is running' })
     }
   }, [settings.wsUrl, onMessage, updateState])
 
-  // ── Send ─────────────────────────────────────────────────────────────────
+  // ── Send message ──────────────────────────────────────────────────────────
   const sendMessage = useCallback(async (content: string) => {
-    const validationError = validateContent(content)
-    if (validationError) {
-      onMessage({
-        id: crypto.randomUUID(), role: 'error',
-        content: validationError, timestamp: Date.now(),
-      })
+    const err = validateContent(content)
+    if (err) {
+      onMessage({ id: crypto.randomUUID(), role: 'error', content: err, timestamp: Date.now() })
       return null
     }
-
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       onMessage({
         id: crypto.randomUUID(), role: 'error',
@@ -246,7 +236,6 @@ export function useJuanWS({
       })
       return null
     }
-
     const requestId = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
     const outbound: WSOutbound = { type: 'message', content, request_id: requestId }
     wsRef.current.send(JSON.stringify(outbound))
@@ -261,7 +250,7 @@ export function useJuanWS({
     updateState({ status: 'disconnected', error: null })
   }, [updateState])
 
-  // Auto-connect when token is available
+  // Auto-connect on mount
   useEffect(() => {
     if (tokenRef.current) {
       connect()

@@ -2,10 +2,9 @@
   "name": "juan-ui",
   "version": "1.0.0",
   "private": true,
-
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
