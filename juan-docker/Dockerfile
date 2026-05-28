@@ -16,6 +16,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # ── React UI build stage ──────────────────────────────────────────────────────
 FROM base AS react-builder
+ARG VITE_APP_ENV=production
+ENV VITE_APP_ENV=$VITE_APP_ENV
 COPY ui-react/package.json ui-react/package-lock.json* ./ui-react/
 RUN cd ui-react && npm install --silent
 COPY ui-react/ ./ui-react/
@@ -34,7 +36,7 @@ COPY --from=react-builder --chown=juan:juan /app/ui-react/dist ./ui-react/dist
 
 # Directories
 RUN mkdir -p /data/workspace /config /app/plugins \
-    && chown -R juan:juan /data /config /app/plugins
+    && chown -R juan:juan /data /config /app /app/plugins
 
 VOLUME ["/data", "/config"]
 
