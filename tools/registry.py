@@ -77,9 +77,33 @@ class ToolRegistry:
                 is_["properties"] = {}
         self._schemas[name] = s
 
-    def get_tool_schemas(self) -> list[dict]:
-        """Return validated schemas — safe to send to any Anthropic-compatible API."""
-        return list(self._schemas.values())
+#     def get_tool_schemas(self) -> list[dict]:
+#         """Return validated schemas — safe to send to any Anthropic-compatible API."""
+#         return list(self._schemas.values())
+
+    def get_tool_schemas(self, provider: str = "deepseek") -> list[dict]:
+        """Return validated schemas formatted for the target provider."""
+        schemas = list(self._schemas.values())
+        if provider != "anthropic":
+            return self._to_openai_schemas(schemas)
+        return schemas
+
+    def _to_openai_schemas(self, schemas: list[dict]) -> list[dict]:
+        """
+        Convert Anthropic-style schemas to OpenAI/DeepSeek function-calling format.
+        Drops 'type': 'custom', renames 'input_schema' → 'parameters',
+        and wraps in {"type": "function", "function": {...}}.
+        """
+        result = []
+        for s in schemas:
+            fn = {
+                "name":        s["name"],
+                "description": s.get("description", ""),
+                "parameters":  s.get("input_schema", {"type": "object", "properties": {}}),
+            }
+            result.append({"type": "function", "function": fn})
+        return result
+
 
     def validate_schemas(self) -> list[str]:
         """Return list of validation errors. Empty = all schemas are API-safe."""

@@ -1,0 +1,3 @@
+docker cp juan-agent:/app ./output/
+docker compose up --build -d
+docker compose logs -f juan
