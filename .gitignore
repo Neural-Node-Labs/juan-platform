@@ -3,7 +3,7 @@
 *.db
 *.db-wal
 *.db-shm
-#juan_pairing.json
+juan_pairing.json
 
 # Python
 __pycache__/
@@ -17,18 +17,17 @@ build/
 venv/
 
 # Config copies (generated at runtime)
-#SOUL.md
-#juan_auth.json
+SOUL.md
+juan_auth.json
 
 # Data
 /data/
 *.log
 *.tar.gz
-*.zip
-*.patch
 
 # macOS / editors
 .DS_Store
 .idea/
 .vscode/
 *.swp
+archive/

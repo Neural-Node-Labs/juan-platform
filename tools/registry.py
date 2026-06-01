@@ -54,31 +54,6 @@ class ToolRegistry:
     # ── Registration ──────────────────────────────────────────────────────────
 
     def register(self, name: str, fn: Callable, schema: dict | None = None) -> None:
-            self._handlers[name] = fn
-            s = schema or {"name": name, "description": ""}
-
-            # If the schema is already wrapped in a "function" nesting, keep it.
-            # Otherwise, wrap the flat schema into the correct API format.
-            if "function" in s and s.get("type") == "function":
-                self._schemas[name] = s
-            else:
-                # Extract fields safely, defaulting parameters/input_schema
-                # Anthropic natively uses 'input_schema', OpenAI uses 'parameters'
-                parameters = s.get("input_schema") or s.get("parameters") or {"type": "object", "properties": {}}
-
-                self._schemas[name] = {
-                    "type": "function",
-                    "function": {
-                        "name": s.get("name", name),
-                        "description": s.get("description", ""),
-                        "parameters": parameters # Adjust to "input_schema" if your client library expects Anthropic style
-                    }
-                }
-
-
-
-
-    def register_old_orig(self, name: str, fn: Callable, schema: dict | None = None) -> None:
         self._handlers[name] = fn
         s = dict(schema) if schema else {"name": name, "description": ""}
         # ── Anthropic API invariants (enforced here so no caller can break them) ──
