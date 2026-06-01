@@ -10,7 +10,7 @@ import time
 import random
 from typing import Any
 
-from logger import trace, warn, error as log_error  # noqa: F401
+from logger import trace, warn, log_error  # noqa: F401
 import logger
 
 # ── Error codes ────────────────────────────────────────────────────────────────
@@ -97,7 +97,22 @@ def _make_request(provider: str, api_mode: str, base_url: str,
             "messages": messages,
         }
         if tools:
-            body["tools"] = tools
+            # Ensure every tool has the required Anthropic fields.
+            # This is a last-resort guard; ToolRegistry.register() should
+            # have normalised schemas already.
+            sanitised = []
+            for t in tools:
+                t = dict(t)
+                if "type" not in t:
+                    t = {"type": "custom", **t}
+                if "name" not in t:
+                    t["name"] = "unnamed_tool"
+                if "description" not in t:
+                    t["description"] = "Tool"
+                if "input_schema" not in t:
+                    t["input_schema"] = {"type": "object", "properties": {}}
+                sanitised.append(t)
+            body["tools"] = sanitised
     else:
         # OpenAI-compatible chat completions
         url = f"{base_url}/chat/completions"

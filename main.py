@@ -19,25 +19,35 @@ def build_agent(session_key: str = ""):
     from tools.registry               import ToolRegistry
     from tools.approval               import ApprovalGate
     from agent.memory_manager         import MemoryManager
-    from juan_state                   import get_db
     from tools.builtin.workspace      import workspace_tool, WORKSPACE_SCHEMA
     from tools.builtin.swarm          import swarm_tool, SWARM_SCHEMA, _orchestrator
-    from juan_cli.runtime_provider    import call_provider
+    from tools.builtin.skill_tool     import skill_tool, SKILL_TOOL_SCHEMA
+    from tools.builtin.os_tool        import os_tool, OS_TOOL_SCHEMA
 
     gate     = ApprovalGate()
+    # OS tool uses "high" threshold — shell requires explicit /approve
     registry = ToolRegistry(approval_gate=gate, approval_threshold="high")
     memory   = MemoryManager()
 
-    # ── C-20  Workspace tool ──────────────────────────────────────────────────
+    # C-20 Workspace — file/folder/shell inside jail
     registry.register("workspace", workspace_tool, WORKSPACE_SCHEMA)
 
-    # ── C-21  Swarm tool ──────────────────────────────────────────────────────
-    # Swarm needs a reference to agent factory + provider — inject lazily
+    # C-22 Skill — list/read/create skills at runtime
+    registry.register("skill", skill_tool, SKILL_TOOL_SCHEMA)
+
+    # C-23 OS — system-wide access (only if env flag set)
+    registry.register("os", os_tool, OS_TOOL_SCHEMA)
+
+    # C-21 Swarm — multi-agent task decomposition
     if _orchestrator is not None:
         registry.register("swarm", swarm_tool, SWARM_SCHEMA)
-    else:
-        # Lazy: will be registered after init_swarm is called below
-        pass
+
+    # Validate all schemas before returning — fail fast, loud error
+    errors = registry.validate_schemas()
+    if errors:
+        import sys as _sys
+        print(f"[WARN] Tool schema errors detected:\n" +
+              "\n".join(f"  • {e}" for e in errors), file=_sys.stderr)
 
     return AIAgent(
         model          = os.environ.get("JUAN_MODEL",    "claude-sonnet-4-20250514"),
@@ -48,19 +58,14 @@ def build_agent(session_key: str = ""):
 
 
 def _init_swarm():
-    """Initialise the swarm orchestrator once at startup."""
-    from tools.builtin.swarm          import init_swarm
-    from juan_cli.runtime_provider    import call_provider
+    from tools.builtin.swarm       import init_swarm
+    from juan_cli.runtime_provider import call_provider
     init_swarm(
         agent_factory = build_agent,
         call_provider = call_provider,
         model    = os.environ.get("JUAN_MODEL",    "claude-sonnet-4-20250514"),
         provider = os.environ.get("JUAN_PROVIDER", "anthropic"),
     )
-    # Now re-register so future agents have the swarm tool
-    from tools.builtin.swarm import _orchestrator
-    from tools.builtin.swarm import swarm_tool, SWARM_SCHEMA
-    # The tool is already registered in build_agent if _orchestrator is set
     print("[Juan] Swarm orchestrator ready")
 
 
@@ -71,12 +76,19 @@ def _ensure_workspace():
     print(f"[Juan] Workspace: {ws}")
 
 
+def _log_os_tool_status():
+    enabled = os.environ.get("JUAN_ENABLE_OS_TOOL", "").lower() in ("true", "1", "yes")
+    status = "ENABLED" if enabled else "disabled (set JUAN_ENABLE_OS_TOOL=true to enable)"
+    print(f"[Juan] OS tool:   {status}")
+
+
 def run_gateway():
     from gateway.run    import GatewayRunner
     from tools.approval import ApprovalGate
 
     _init_swarm()
     _ensure_workspace()
+    _log_os_tool_status()
     gate   = ApprovalGate()
     runner = GatewayRunner(agent_factory=build_agent, approval_gate=gate)
 
@@ -97,6 +109,7 @@ def run_ui_gateway():
 
     _init_swarm()
     _ensure_workspace()
+    _log_os_tool_status()
     gw = get_ui_gateway()
     gw.set_agent_factory(build_agent)
 
@@ -115,10 +128,11 @@ def run_ui_gateway():
 
 def run_acp():
     from acp_adapter.server import ACPServer
-    from juan_state          import get_db
+    from juan_state         import get_db
 
     _init_swarm()
     _ensure_workspace()
+    _log_os_tool_status()
     server = ACPServer(agent_factory=build_agent, session_store=get_db(DB_PATH))
     print("[Juan] ACP server (stdin/stdout JSON-RPC)", file=sys.stderr)
     server.run()
@@ -128,10 +142,11 @@ def run_repl():
     import uuid
     _init_swarm()
     _ensure_workspace()
+    _log_os_tool_status()
     agent      = build_agent()
     session_id = uuid.uuid4().hex
-    ws_path    = os.environ.get("JUAN_WORKSPACE", "/data/workspace")
-    print(f"Juan REPL — workspace: {ws_path}")
+
+    print(f"Juan REPL — workspace: {WORKSPACE_ROOT}")
     print("Type 'exit' to quit\n")
     while True:
         try:

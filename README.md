@@ -22,7 +22,7 @@ Juan is a self-hosted AI agent platform that:
 
 ```bash
 unzip juan_platform_docker.zip
-cd src
+cd juan-docker
 ```
 
 ### 2. Configure
@@ -97,7 +97,7 @@ Visit **http://localhost:5000** for:
 ## Project Structure
 
 ```
-src/
+juan-docker/
 ├── main.py                 # Entry point
 ├── juan_state.py           # SESSION_STORE (SQLite WAL + FTS5)
 ├── logger.py               # Structured JSON logging

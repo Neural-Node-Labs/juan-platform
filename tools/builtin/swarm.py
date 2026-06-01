@@ -431,9 +431,8 @@ def swarm_tool(
     )
 
 
-
-
 SWARM_SCHEMA = {
+    "type": "custom",
     "name": "swarm",
     "description": (
         "Decompose a complex task into subtasks and run each one with a separate agent instance. "
